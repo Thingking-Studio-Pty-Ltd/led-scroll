@@ -1,12 +1,14 @@
 #include "GSMinit.h"
 #include "MatrixFont.h"
 #include <FastLED.h>
-#include <QueueArray3.h>
+#include "QueueArray.h"
+#include <TeensyThreads.h>
 
 #define CHIPSET     WS2811
 #define LED_PIN     11
 #define COLOR_ORDER RGB
 #define BRIGHTNESS  255
+
 QueueArray <char> queue;
 QueueArray <char> queue1;
 QueueArray <char> queue2;
@@ -20,54 +22,27 @@ const uint8_t kMatrixWidth = 50;
 const uint8_t kMatrixHeight = 10;
 
 #define NUM_LEDS (kMatrixWidth * kMatrixHeight)
+
 CRGB leds_plus_safety_pixel[ NUM_LEDS + 1];
 CRGB* const leds( leds_plus_safety_pixel + 1);
 boolean bLeds [NUM_LEDS];
 
 char character = alphaNums[0];
 int characterPos = 0;
+
 const bool    kMatrixSerpentineLayout = true;
-const char* broker = "m10.cloudmqtt.com";
+const char* broker = "weseechange.co.za";
+
 String message = "DUCKDUCKGOOSESTORE.COM            ";
 String temp = "";
+
 int tred, tblue, tgreen = 255; 
 int bred, bblue, bgreen = 0;
 int stringLen = message.length();
+
 long lastReconnectAttempt = 0;
+
 bool isText = true;
-
-void setup() {
-  Serial.begin(115200);
-  delay(10);
-  Serial2.begin(115200);
-  delay(3000);
-  Serial1.begin(115200);
-  delay(10);
-  //High baud rate required when interfacing with both the MQTT broker and LED matrix to reduce delays related to matrix updates
-  FastLED.addLeds<CHIPSET, LED_PIN, COLOR_ORDER>(leds, NUM_LEDS).setCorrection(TypicalSMD5050); //Initialize LED matrix
-  
-  bootGSM();
-  //Initialize GSM modem
-  mqttClient.setServer(broker, 11725); //Establish connection with MQTT broker setServer(brokerIP, port)
-  mqttClient.connect("duckduckgoose", "enhwevjl", "bE4i40iYYuJg", "duck", 0, true, "");
-  mqttClient.subscribe("duck");
-  mqttClient.setCallback(retrieveData); //Creat eventhandler to call function retrieveData on reciept of a new message
-}
-
-void loop() {
-  if (mqttClient.connected()) {
-    mqttClient.loop();
-    scrollText();
-  } else {
-    unsigned long t = millis();
-    if (t - lastReconnectAttempt > 10000L) {
-      lastReconnectAttempt = t;
-      if (mqttConnect()) {
-        lastReconnectAttempt = 0;
-      }
-    }
-  }
-}
 
 boolean mqttConnect() {
   Serial.print("Connecting to ");
@@ -82,6 +57,24 @@ boolean mqttConnect() {
   return mqttClient.connected();
 }
 
+void test() {
+    while(true){
+      for(int dot = 0; dot < NUM_LEDS; dot++) { 
+            leds[dot] = CRGB::Blue;
+        }
+        FastLED.show();
+        delay(100);
+        for(int dot = 0; dot < NUM_LEDS; dot++) { 
+            leds[dot] = CRGB::Red;
+            FastLED.show();
+            // clear this led for the next time around the loop
+            leds[dot] = CRGB::Black;
+        }
+        delay(100);
+    }
+}
+
+
 void retrieveData(char* topic, byte* payload, unsigned int len){
   //Function used to print out data retrieved from the MQTT broker
   message = "";
@@ -91,7 +84,7 @@ void retrieveData(char* topic, byte* payload, unsigned int len){
       temp += (char(payload[i])); 
   }
   do {
-    scrollText();
+  scrollText();
   } 
   
   while (!matrixCleared());
@@ -184,7 +177,6 @@ uint16_t XYsafe( uint8_t x, uint8_t y)
   return XY(x, y);
 }
 
-
 void populateMessage(uint8_t choice) {
   stringLen = message.length();
   for (int i = 0; i < stringLen; i++) {
@@ -208,109 +200,133 @@ void clearMatrix() {
 }
 
 void scrollText() {
-    long timer = millis();
-    
-    for (int  x = 0; x < kMatrixWidth - 1 ; x++) {
-      for (int y = 0; y < kMatrixHeight; y++) {
-        bLeds[ XY( x, y) ] = bLeds[XY(x + 1, y)];
-      }
-    }
-    
-    if (waitingForAnimation) {
-      if (!matrixCleared()) {
-        Serial.println("boooo");
-        goto end_of_loop;
-      } else {
-        waitingForAnimation = false;
-        character = ' ';
-      }
-    }
-    
-    for (int i = 0; i < 10; i++) {
-      int posTemp  = 0;
-      for (int q = 0; q < FONTSIZE; q++) {
-        if (character == alphaNums[q] ) {
-            isText = true;
-            posTemp = q;
-            if (alphaNumsFont[posTemp][i][characterPos] == 1) {
-                bLeds[XY(kMatrixWidth - 1, i)] = 1;
-            }  
-      
-            else {
-                bLeds[XY(kMatrixWidth - 1, i)] = 0;
+    Serial.println("scrolling text");
+    //while(true){
+        long timer = millis();
+        
+        for (int  x = 0; x < kMatrixWidth - 1 ; x++) {
+            for (int y = 0; y < kMatrixHeight; y++) {
+                bLeds[ XY( x, y) ] = bLeds[XY(x + 1, y)];
             }
         }
-
-        else if(character == imageNums[q] ) {
-            isText = false;
-            posTemp = q;
-            if (imageNumsFont[posTemp][i][characterPos] == 1) {
-                bLeds[XY(kMatrixWidth - 1, i)] = 1;
-            }  
-      
-            else {
-                bLeds[XY(kMatrixWidth - 1, i)] = 0;
+        
+        if (waitingForAnimation) {
+            if (!matrixCleared()) {
+                Serial.println("boooo");
+                goto end_of_loop;
+            } else {
+                waitingForAnimation = false;
+                character = ' ';
             }
         }
-      }
-    }
-    
-    characterPos++;
-    Serial.println(character);
-    if(isText){
-      if (characterPos == 9) {
-      characterPos = 0;
-      if (queue.isEmpty()) {
-        mqttClient.publish("done", "done");
-        holding = true;
-        populateMessage(holdingChoice);
-      }
-      else {
-        character = queue.pop();
-        if (character == '\1') {
-          character = queue.pop();
-          Serial.println("animation");
-          waitingForAnimation = true;
-          Serial.println("hello");
+        
+        for (int i = 0; i < 10; i++) {
+            int posTemp  = 0;
+            for (int q = 0; q < FONTSIZE; q++) {
+                if (character == alphaNums[q] ) {
+                    isText = true;
+                    posTemp = q;
+                    if (alphaNumsFont[posTemp][i][characterPos] == 1) {
+                        bLeds[XY(kMatrixWidth - 1, i)] = 1;
+                    } else {
+                        bLeds[XY(kMatrixWidth - 1, i)] = 0;
+                    }
+                } else if(character == imageNums[q] ) {
+                    isText = false;
+                    posTemp = q;
+                    if (imageNumsFont[posTemp][i][characterPos] == 1) {
+                        bLeds[XY(kMatrixWidth - 1, i)] = 1;
+                    } else {
+                        bLeds[XY(kMatrixWidth - 1, i)] = 0;
+                    }
+                }
+            }
         }
-      }
-      }
-    }else{
-    
+        
+        characterPos++;
+       
+        
+        if(isText){
+            if (characterPos == 9) {
+                characterPos = 0;
+            
+                if (queue.isEmpty()) {
+                    mqttClient.publish("done", "done");
+                    holding = true;
+                    populateMessage(holdingChoice);
+                } else {
+                    character = queue.pop();
+                    if (character == '\1') {
+                        character = queue.pop();
+                        Serial.println("animation");
+                        waitingForAnimation = true;
+                        Serial.println("hello");
+                    }
+                }
+            }
 
-    if (characterPos == 49) {
-      characterPos = 0;
-      if (queue.isEmpty()) {
-        mqttClient.publish("done", "done");
-        holding = true;
-        populateMessage(holdingChoice);
-      }
-      else {
-        character = queue.pop();
-        if (character == '\1') {
-          character = queue.pop();
-          Serial.println("animation");
-          waitingForAnimation = true;
-          Serial.println("hello");
+        } else {
+            if (characterPos == 49) {
+                characterPos = 0;
+                if (queue.isEmpty()) {
+                    mqttClient.publish("done", "done");
+                    holding = true;
+                    populateMessage(holdingChoice);
+                }
+                else {
+                    character = queue.pop();
+                    if (character == '\1') {
+                        character = queue.pop();
+                        Serial.println("animation");
+                        waitingForAnimation = true;
+                        Serial.println("hello");
+                    }
+                }
+            }
         }
+        
+        end_of_loop:
+        
+        for (int i = 0; i < NUM_LEDS; i++) {
+            if (bLeds[i]) {
+                leds[i].g = tgreen;
+                leds[i].b = tblue;
+                leds[i].r = tred;
+            } else {
+                leds[i].g = bgreen;
+                leds[i].b = bblue;
+                leds[i].r = bred;
+            }
+        }
+        
+        while (millis() - timer < textSpeed);
+        FastLED.show();
+    //}
+}
+
+void setup() {
+  Serial.begin(115200);
+  Serial2.begin(115200);
+  FastLED.addLeds<CHIPSET, LED_PIN, COLOR_ORDER>(leds, NUM_LEDS).setCorrection(TypicalSMD5050);
+  //threads.addThread(scrollText);
+  bootGSM();
+  mqttClient.setServer(broker, 1883);
+  mqttClient.connect("duckduckgoose", "enhwevjl", "bE4i40iYYuJg", "duck", 0, true, "");
+  mqttClient.subscribe("duck");
+  mqttClient.setCallback(retrieveData);
+}
+
+void loop() {
+  if (mqttClient.connected()) {
+    mqttClient.loop();
+    scrollText();
+  } else {
+    unsigned long t = millis();
+    if (t - lastReconnectAttempt > 10000L) {
+      lastReconnectAttempt = t;
+      if (mqttConnect()) {
+        lastReconnectAttempt = 0;
       }
-     }
     }
-    
-    end_of_loop:
-    
-    for (int i = 0; i < NUM_LEDS; i++) {
-      if (bLeds[i]) {
-          leds[i].g = tgreen;
-          leds[i].b = tblue;
-          leds[i].r = tred;
-      } else {
-          leds[i].g = bgreen;
-          leds[i].b = bblue;
-          leds[i].r = bred;
-      }
-    }
-    
-    while (millis() - timer < textSpeed);
-    FastLED.show();
+  }
 }

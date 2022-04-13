@@ -11,14 +11,14 @@ void bootGSM(){
   Serial.println("Initializing modem");
   modem.restart(); //Reboot GSM modem (ensures the module doesnt have any lingering connections)
   Serial.println("Modem: " + modem.getModemInfo()); //Details modem model and airtime balance
-  Serial.print("Waiting for network ");
+  Serial.print("Waiting for network: ");
   if (!modem.waitForNetwork()){ 
     //Modem fails to connect to a network
     Serial.println("Fail");
     bootGSM();
   }
   Serial.println("OK");
-  Serial.print("Connecting to internet ");
+  Serial.print("Connecting to internet: ");
   if (!modem.gprsConnect("internet", "", "")) { //gprsConnect(apr, username, password)
     //Modem fails to access the Internet
     Serial.println("Fail");
